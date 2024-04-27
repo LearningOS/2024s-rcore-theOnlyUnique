@@ -13,8 +13,9 @@ mod context;
 mod switch;
 #[allow(clippy::module_inception)]
 mod task;
-
-use crate::config::MAX_APP_NUM;
+use crate::timer::get_time_ms;
+// use crate::config::;
+use crate::config::{MAX_APP_NUM,MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use lazy_static::*;
@@ -54,6 +55,8 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            init_time:get_time_ms(),
+            syscall_times:[0;MAX_SYSCALL_NUM],
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -168,4 +171,28 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// 对系统调用进行计数
+pub fn task_count(syscall_id:usize) {
+    // 获取当前的TaskManage的使用
+    let mut current_task_manager = TASK_MANAGER.inner.exclusive_access();
+    // 将当前Task的TCB的系统调用数组更新  为后面更新状态到TaskInfo 做准备
+    let current_task =  current_task_manager.current_task;
+    // current_task_manager.syscall_times[syscall_id] +=1;
+    current_task_manager.tasks[current_task].syscall_times[syscall_id] +=1;
+}
+/// 获取每个任务系统调用次数列表
+pub fn get_systemcall_times() -> [u32;MAX_SYSCALL_NUM] {
+    let current_task_manager = TASK_MANAGER.inner.exclusive_access();
+    let current_task =  current_task_manager.current_task;
+    current_task_manager.tasks[current_task].syscall_times
+}
+
+/// 获取当前运行任务的初始化时间
+pub fn get_current_task_init_time() -> usize {
+    // 获取当前的TaskManage的使用
+    let current_task_manager = TASK_MANAGER.inner.exclusive_access();
+    let current_task =  current_task_manager.current_task;
+    current_task_manager.tasks[current_task].init_time
 }

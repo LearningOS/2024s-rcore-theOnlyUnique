@@ -17,3 +17,6 @@ pushall.sh
 *.bak
 
 user/*
+qemu-7.0.0
+qemu-7.0.0.tar.xz
+ci-user
