@@ -1,6 +1,6 @@
 //! Implementation of [`PageTableEntry`] and [`PageTable`].
 
-use super::{frame_alloc, FrameTracker, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
+use super::{frame_alloc, FrameTracker, PhysAddr, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
@@ -125,6 +125,40 @@ impl PageTable {
         }
         result
     }
+    ///查看当前分配是否合法  &V 为空
+    pub fn interval_valid(&mut self, from: VirtPageNum, end: VirtPageNum) -> bool {
+        (from.0..end.0)
+            .into_iter()
+            .map(|num| VirtPageNum::from(num))
+            .any(|vpn| -> bool {
+                self.find_pte_create(vpn)
+                    .is_some_and(|v| PageTableEntry::is_valid(&v))
+            })
+    }
+
+    ///寻找是否存在无效页  &V 不为空
+    pub fn interval_invalid(&mut self, from: VirtPageNum, end: VirtPageNum) -> bool {
+        (from.0..end.0)
+            .into_iter()
+            .map(|num| VirtPageNum::from(num))
+            .any(|vpn| -> bool {
+                match self.find_pte_create(vpn) {
+                    Some(pte) => !PageTableEntry::is_valid(&pte),
+                    None => true,
+                }
+            })
+    }
+    /// 对区间每一个映射进行检查
+    pub fn check_items<T>(&mut self, from: VirtPageNum, end: VirtPageNum, op: T)
+    where
+        T: FnMut(VirtPageNum),
+    {
+        (from.0..end.0)
+            .into_iter()
+            .map(|num| VirtPageNum::from(num))
+            .for_each(op)
+    }
+
     /// set the map between virtual page number and physical page number
     #[allow(unused)]
     pub fn map(&mut self, vpn: VirtPageNum, ppn: PhysPageNum, flags: PTEFlags) {
@@ -170,4 +204,18 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
         start = end_va.into();
     }
     v
+}
+
+/// 根据vpn获取ppn
+pub fn get_ppt<T>(token: usize, ptr: *mut T) -> &'static mut T {
+    let from_token = PageTable::from_token(token);
+    let from = VirtAddr::from(ptr as usize);
+    let actual_address: PhysAddr = from_token
+        .find_pte(from.clone().floor())
+        .map(|entry| {
+            let pta: PhysAddr = entry.ppn().into();
+            (pta.0 + from.page_offset()).into()
+        })
+        .unwrap();
+    actual_address.get_mut()
 }

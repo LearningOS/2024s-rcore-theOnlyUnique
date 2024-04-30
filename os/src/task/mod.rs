@@ -14,7 +14,11 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use core::cell::RefMut;
+
+use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::MemorySet;
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -201,4 +205,35 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// 对系统调用进行计数
+pub fn task_count(syscall_id:usize) {
+    // 获取当前的TaskManage的使用
+    let mut current_task_manager = TASK_MANAGER.inner.exclusive_access();
+    // 将当前Task的TCB的系统调用数组更新  为后面更新状态到TaskInfo 做准备
+    let current_task =  current_task_manager.current_task;
+    // current_task_manager.syscall_times[syscall_id] +=1;
+    current_task_manager.tasks[current_task].syscall_times[syscall_id] +=1;
+}
+/// 获取每个任务系统调用次数列表
+pub fn get_systemcall_times() -> [u32;MAX_SYSCALL_NUM] {
+    let current_task_manager = TASK_MANAGER.inner.exclusive_access();
+    let current_task =  current_task_manager.current_task;
+    current_task_manager.tasks[current_task].syscall_times
+}
+
+/// 获取当前运行任务的初始化时间
+pub fn get_current_task_init_time() -> usize {
+    // 获取当前的TaskManage的使用
+    let current_task_manager = TASK_MANAGER.inner.exclusive_access();
+    let current_task =  current_task_manager.current_task;
+    current_task_manager.tasks[current_task].init_time
+}
+/// 获取地址空间  传入一个函数
+pub fn get_current_memset<T>(mut operator_memory_set: T)->isize where T:FnMut(*mut MemorySet)->isize{
+    let mut exclusive_access:RefMut<'static, TaskManagerInner> = TASK_MANAGER.inner.exclusive_access();
+    let current_task = exclusive_access.current_task;
+    let memory_set = &mut exclusive_access.tasks[current_task].memory_set as *mut MemorySet;
+    operator_memory_set(memory_set)
 }
